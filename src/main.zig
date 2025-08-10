@@ -28,9 +28,11 @@ pub fn main() anyerror!void {
     //--------------------------------------------------------------------------------------
 
     var p = Player.init(SCREENHEIGHT, SCREENWIDTH, playerTexture);
+    const platform = Platform.init(100, SCREENHEIGHT - 100, 100, 20);
+    const platform2 = Platform.init(200, SCREENHEIGHT - 200, 100, 20);
+    const platform3 = Platform.init(300, SCREENHEIGHT - 300, 100, 20);
+    const PlatformArray = [_]Platform{ platform, platform2, platform3 };
     p.spawn();
-    var platform = Platform.init(100, SCREENHEIGHT - 100, 100, 20);
-    var platform2 = Platform.init(200, SCREENHEIGHT - 200, 100, 20);
 
     // Main game loop
     while (!rl.windowShouldClose()) { // Detect window close button or ESC key
@@ -55,10 +57,11 @@ pub fn main() anyerror!void {
 
         rl.clearBackground(.white);
 
-        p.update(platform);
+        p.update(&PlatformArray);
         p.draw();
-        platform.draw();
-        platform2.draw();
+        for (PlatformArray) |platformItem| {
+            platformItem.draw();
+        }
     }
 }
 
@@ -72,7 +75,7 @@ const Platform = struct {
         return Platform{ .height = height, .width = width, .x = x, .y = y };
     }
 
-    pub fn draw(self: *Platform) void {
+    pub fn draw(self: *const Platform) void {
         rl.drawRectangle(self.x, self.y, self.width, self.height, rl.Color.blue);
     }
 };
@@ -120,18 +123,24 @@ const Player = struct {
         }
     }
 
-    pub fn update(self: *Player, platform: Platform) void {
+    pub fn update(self: *Player, platforms: []const Platform) void {
         self.speedY += self.gravity;
         self.y += self.speedY;
+        self.onGround = false;
 
-        if (self.x + self.size > platform.x and self.x < platform.x + platform.width and
-            self.y + self.size >= platform.y and self.y + self.size <= platform.y + platform.height)
-        {
-            self.y = platform.y - self.size;
-            self.onGround = true;
-            self.speedY = 0;
+        for (platforms) |platform| {
+            const collisionX = self.x + self.size > platform.x and self.x < platform.x + platform.width;
+            const collisionY = self.y + self.size >= platform.y and self.y + self.size <= platform.y + platform.height;
+
+            // On ne corrige que si on descend
+            if (collisionX and collisionY and self.speedY > 0) {
+                self.y = platform.y - self.size;
+                self.onGround = true;
+                self.speedY = 0;
+            }
         }
 
+        // Collision avec le sol
         if (self.y > self.SCREENHEIGHT - self.size) {
             self.y = self.SCREENHEIGHT - self.size;
             self.onGround = true;
