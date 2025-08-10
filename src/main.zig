@@ -4,33 +4,38 @@ const std = @import("std");
 pub fn main() anyerror!void {
     // Initialization
     //--------------------------------------------------------------------------------------
-    const screenWidth = 800;
-    const screenHeight = 450;
+    const SCREENWIDTH = 1600;
+    const SCREENHEIGHT = 900;
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    var bullet_list = std.ArrayList(Bullet).init(arena.allocator());
-
-    rl.initWindow(screenWidth, screenHeight, "raylib-zig [core] example - basic window");
+    // var bullet_list = std.ArrayList(Bullet).init(arena.allocator());
     defer rl.closeWindow(); // Close window and OpenGL context
+
+    rl.initWindow(SCREENWIDTH, SCREENHEIGHT, "raylib-zig [core] example - basic window");
+
+    var img = try rl.loadImage("src/mael.png"); // Peut échouer → on met try
+    defer rl.unloadImage(img); // Libère l'image CPU
+
+    rl.imageResize(&img, 80, 80);
+
+    const playerTexture = try rl.loadTextureFromImage(img); // Peut échouer aussi
+    defer rl.unloadTexture(playerTexture); // Libère la texture GPU
     //
     //
 
     rl.setTargetFPS(60); // Set our game to run at 60 frames-per-second
     //--------------------------------------------------------------------------------------
 
-    var p = Player.init(0, 0);
+    var p = Player.init(SCREENHEIGHT, SCREENWIDTH, playerTexture);
+    p.spawn();
+    var platform = Platform.init(100, SCREENHEIGHT - 100, 100, 20);
+    var platform2 = Platform.init(200, SCREENHEIGHT - 200, 100, 20);
 
     // Main game loop
     while (!rl.windowShouldClose()) { // Detect window close button or ESC key
         // Update
         //----------------------------------------------------------------------------------
-        if (rl.isKeyDown(rl.KeyboardKey.down)) {
-            p.down();
-        }
-        if (rl.isKeyDown(rl.KeyboardKey.up)) {
-            p.up();
-        }
         if (rl.isKeyDown(rl.KeyboardKey.left)) {
             p.left();
         }
@@ -39,7 +44,7 @@ pub fn main() anyerror!void {
         }
 
         if (rl.isKeyPressed(rl.KeyboardKey.space)) {
-            try p.shoot(&bullet_list);
+            p.jump();
         }
         //----------------------------------------------------------------------------------
 
@@ -50,74 +55,91 @@ pub fn main() anyerror!void {
 
         rl.clearBackground(.white);
 
+        p.update(platform);
         p.draw();
-        for (bullet_list.items) |*bullet| {
-            bullet.update();
-            bullet.draw();
-        }
-        //----------------------------------------------------------------------------------
+        platform.draw();
+        platform2.draw();
     }
 }
+
+const Platform = struct {
+    height: i32,
+    width: i32,
+    x: i32,
+    y: i32,
+
+    pub fn init(x: i32, y: i32, width: i32, height: i32) Platform {
+        return Platform{ .height = height, .width = width, .x = x, .y = y };
+    }
+
+    pub fn draw(self: *Platform) void {
+        rl.drawRectangle(self.x, self.y, self.width, self.height, rl.Color.blue);
+    }
+};
 
 const Player = struct {
     x: i32,
     y: i32,
     moveBy: i8,
     size: i8,
+    speedY: i8,
+    SCREENHEIGHT: i32,
+    SCREENWIDTH: i32,
+    onGround: bool,
+    gravity: i8,
+    texture: rl.Texture2D,
 
-    pub fn init(x: i32, y: i32) Player {
-        return Player{ .x = x, .y = y, .moveBy = 10, .size = 20 };
+    pub fn init(SCREENHEIGHT: i32, SCREENWIDTH: i32, texture: rl.Texture2D) Player {
+        return Player{ .x = 0, .y = 0, .moveBy = 10, .size = 80, .SCREENHEIGHT = SCREENHEIGHT, .SCREENWIDTH = SCREENWIDTH, .speedY = 0, .onGround = true, .gravity = 1, .texture = texture };
     }
 
-    pub fn down(self: *Player) void {
-        self.y += self.moveBy;
+    pub fn jump(self: *Player) void {
+        if (!self.onGround) {
+            return;
+        }
+        self.speedY = -20;
+        self.onGround = false;
     }
 
-    pub fn up(self: *Player) void {
-        self.y -= self.moveBy;
+    pub fn spawn(self: *Player) void {
+        self.y = self.SCREENHEIGHT - self.size;
+        self.x = @divFloor(self.SCREENWIDTH, 2);
     }
 
     pub fn left(self: *Player) void {
         self.x -= self.moveBy;
+        if (self.x < 0) {
+            self.x = 0;
+        }
     }
 
     pub fn right(self: *Player) void {
         self.x += self.moveBy;
+        if (self.x > self.SCREENWIDTH - self.size) {
+            self.x = self.SCREENWIDTH - self.size;
+        }
     }
 
-    pub fn shoot(self: *Player, list: *std.ArrayList(Bullet)) !void {
-        try list.append(Bullet.init(self.x, self.y, UP, self));
-        try list.append(Bullet.init(self.x, self.y, DOWN, self));
-        try list.append(Bullet.init(self.x, self.y, LEFT, self));
-        try list.append(Bullet.init(self.x, self.y, RIGHT, self));
+    pub fn update(self: *Player, platform: Platform) void {
+        self.speedY += self.gravity;
+        self.y += self.speedY;
+
+        if (self.x + self.size > platform.x and self.x < platform.x + platform.width and
+            self.y + self.size >= platform.y and self.y + self.size <= platform.y + platform.height)
+        {
+            self.y = platform.y - self.size;
+            self.onGround = true;
+            self.speedY = 0;
+        }
+
+        if (self.y > self.SCREENHEIGHT - self.size) {
+            self.y = self.SCREENHEIGHT - self.size;
+            self.onGround = true;
+            self.speedY = 0;
+        }
     }
 
     pub fn draw(self: *Player) void {
-        rl.drawRectangle(self.x, self.y, self.size, self.size, rl.Color.red);
+        rl.drawTexture(self.texture, self.x, self.y, rl.Color.white);
     }
 };
-
-const Bullet = struct {
-    x: i32,
-    y: i32,
-    moveBy: i8,
-    direction: [2]i32,
-
-    pub fn init(x: i32, y: i32, direction: [2]i32, player: *Player) Bullet {
-        return Bullet{ .x = x + @divTrunc(player.size, 2), .y = y + @divTrunc(player.size, 2), .direction = direction, .moveBy = 4 };
-    }
-
-    pub fn draw(self: *Bullet) void {
-        rl.drawCircle(self.x, self.y, 4, rl.Color.red);
-    }
-
-    pub fn update(self: *Bullet) void {
-        self.x += self.direction[0] * self.moveBy;
-        self.y += self.direction[1] * self.moveBy;
-    }
-};
-
-const UP = [2]i32{ 0, -1 };
-const DOWN = [2]i32{ 0, 1 };
-const LEFT = [2]i32{ -1, 0 };
-const RIGHT = [2]i32{ 1, 0 };
